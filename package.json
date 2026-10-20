@@ -1,0 +1,14 @@
+{
+  "name": "estate-tycoon",
+  "version": "1.0.0",
+  "description": "Online multiplayer property-trading board game for up to 8 players",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test.js"
+  },
+  "engines": { "node": ">=16" },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

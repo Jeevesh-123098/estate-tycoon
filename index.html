@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Estate Tycoon</title>
+<style>
+:root{--bg:#10192b;--panel:#18243d;--panel2:#1f2e4d;--ink:#e8eefc;--mut:#8fa0c4;--acc:#ffc233;--good:#2bb673;--bad:#e63946;--tile:#f3efe0;--board:#cfe6d3}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;min-height:100vh}
+button{font:inherit;cursor:pointer;border:0;border-radius:8px;padding:8px 14px;background:var(--acc);color:#222;font-weight:700}
+button:hover{filter:brightness(1.08)}button:disabled{opacity:.4;cursor:not-allowed}
+button.sec{background:var(--panel2);color:var(--ink);border:1px solid #34476f}
+button.bad{background:var(--bad);color:#fff}button.good{background:var(--good);color:#fff}
+button.sm{padding:3px 8px;font-size:12px;border-radius:6px}
+input{font:inherit;padding:9px 12px;border-radius:8px;border:1px solid #34476f;background:#0d1526;color:var(--ink)}
+.hide{display:none!important}
+#conn{position:fixed;right:8px;top:8px;font-size:12px;padding:3px 8px;border-radius:99px;background:var(--bad);color:#fff;z-index:50}
+#conn.ok{background:var(--good)}
+#toasts{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:60;display:flex;flex-direction:column;gap:6px;align-items:center;pointer-events:none}
+.toast{background:#000d;border:1px solid #fff3;padding:8px 14px;border-radius:10px;max-width:90vw}
+.toast.err{background:#7a1621ee}.toast.card{background:#fff;color:#222;border:3px solid var(--acc);max-width:340px;text-align:center}
+/* home / lobby */
+.center{max-width:460px;margin:8vh auto;padding:20px}
+.center h1{font-size:40px;margin:0 0 4px;letter-spacing:1px}
+.center .sub{color:var(--mut);margin-bottom:24px}
+.box{background:var(--panel);padding:18px;border-radius:14px;margin-bottom:14px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.row>input{flex:1;min-width:120px}
+.code{font-size:48px;letter-spacing:10px;font-weight:800;color:var(--acc);text-align:center;margin:6px 0}
+.seat{display:flex;align-items:center;gap:10px;padding:8px;border-radius:8px;background:var(--panel2);margin-bottom:6px}
+.dot{width:18px;height:18px;border-radius:50%;border:2px solid #fff;flex:none}
+.sw{width:30px;height:30px;border-radius:50%;border:3px solid transparent;padding:0}
+.sw.mine{border-color:#fff}.sw:disabled{opacity:.25}
+/* game */
+#game{display:flex;gap:12px;padding:10px;align-items:flex-start;justify-content:center}
+#boardWrap{flex:1 1 auto;max-width:min(100%,calc(100vh - 20px));min-width:300px}
+#board{display:grid;grid-template-columns:1.5fr repeat(9,1fr) 1.5fr;grid-template-rows:1.5fr repeat(9,1fr) 1.5fr;aspect-ratio:1;width:100%;background:var(--board);border:2px solid #000;container-type:inline-size;position:relative}
+.tile{background:var(--tile);border:1px solid #333;color:#111;position:relative;display:flex;overflow:hidden;cursor:pointer;min-width:0;min-height:0}
+.tile.sb{flex-direction:column}.tile.sl{flex-direction:row-reverse}.tile.st{flex-direction:column-reverse}.tile.sr{flex-direction:row}.tile.cn{flex-direction:column;justify-content:center;align-items:center;text-align:center}
+.band{flex:0 0 22%;display:flex;flex-wrap:wrap;align-content:center;justify-content:center;gap:1px;padding:1px;border:0 solid #333}
+.sb .band{border-bottom-width:1px}.st .band{border-top-width:1px}.sl .band{border-left-width:1px}.sr .band{border-right-width:1px}
+.hs{width:1.2cqw;height:1.2cqw;background:#1a9a45;border:1px solid #063}.ht{width:2.6cqw;height:1.4cqw;background:#d11;border:1px solid #600}
+.body{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:1px;min-width:0;line-height:1.05}
+.nm{font-size:max(6px,1.25cqw);font-weight:700;word-break:break-word}
+.pr{font-size:max(6px,1.15cqw);color:#444}
+.ic{font-size:max(9px,2.4cqw)}
+.cn .nm{font-size:max(7px,1.4cqw)}
+.own{position:absolute;left:0;right:0;bottom:0;height:.7cqw;min-height:3px}
+.tile.mort{background:repeating-linear-gradient(45deg,#ddd,#ddd 4px,#bbb 4px,#bbb 8px)}
+.tile.mort .nm::after{content:" (M)"}
+.tk{position:absolute;left:0;right:0;bottom:.8cqw;display:flex;flex-wrap:wrap;justify-content:center;gap:1px;pointer-events:none}
+.tok{width:max(11px,2.1cqw);height:max(11px,2.1cqw);border-radius:50%;border:max(1.5px,.25cqw) solid #fff;box-shadow:0 0 0 1px #000;font-size:max(6px,1.1cqw);color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center;text-shadow:0 0 2px #000}
+.tok.cur{outline:2px solid #ffeb3b;animation:pulse 1s infinite}
+@keyframes pulse{50%{transform:scale(1.25)}}
+#center{grid-area:2/2/11/11;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:max(4px,1cqw);padding:1.5cqw;text-align:center;color:#12301d;overflow:hidden}
+#center .ttl{font-size:max(14px,4.2cqw);font-weight:900;letter-spacing:.3cqw}
+#center .stat{font-size:max(11px,2cqw);font-weight:700}
+#center .small{font-size:max(9px,1.5cqw)}
+#center button{font-size:max(11px,1.9cqw);padding:max(4px,.8cqw) max(8px,1.6cqw)}
+.dice{display:flex;gap:1.5cqw;font-size:max(30px,8cqw);line-height:1;color:#12301d}.dice.shake{animation:shake .5s}
+@keyframes shake{25%{transform:rotate(-12deg)}50%{transform:rotate(10deg)}75%{transform:rotate(-6deg)}}
+.cbtns{display:flex;gap:1cqw;flex-wrap:wrap;justify-content:center}
+.evt{font-size:max(8px,1.3cqw);color:#355;max-height:7cqw;overflow:hidden}
+#side{width:370px;max-width:100%;flex:none;display:flex;flex-direction:column;gap:10px;max-height:calc(100vh - 20px);overflow-y:auto}
+.sec-h{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--mut);margin:0 0 6px;display:flex;justify-content:space-between;align-items:center}
+.pl{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;background:var(--panel2);margin-bottom:5px;font-size:14px}
+.pl.turn{outline:2px solid var(--acc)}.pl.out{opacity:.4;text-decoration:line-through}
+.pl .cash{margin-left:auto;font-weight:800}
+.tag{font-size:11px;background:#0006;padding:1px 6px;border-radius:99px}
+.prow{display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid #fff1;font-size:13px}
+.prow .sw2{width:12px;height:22px;border-radius:3px;flex:none}
+.prow .nmx{flex:1;min-width:0}
+.prow.m .nmx{text-decoration:line-through;opacity:.6}
+#log,#chatlog{height:130px;overflow-y:auto;font-size:12.5px;line-height:1.4;color:#c6d3ef}
+#chatlog div b{margin-right:4px}
+.tabs{display:flex;gap:6px;margin-bottom:6px}
+.tabs button{padding:3px 10px;font-size:12px}
+.tr{background:var(--panel2);border-radius:8px;padding:8px;margin-bottom:6px;font-size:13px}
+#modal{position:fixed;inset:0;background:#000a;display:flex;align-items:center;justify-content:center;z-index:40;padding:10px}
+#modal .card{background:var(--panel);border-radius:14px;padding:18px;max-width:640px;width:100%;max-height:90vh;overflow:auto}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.cols label{display:flex;gap:6px;align-items:center;font-size:13px;padding:2px 0}
+table.rt{width:100%;font-size:13px;border-collapse:collapse}table.rt td{padding:2px 6px;border-bottom:1px solid #fff2}
+@media(max-width:900px){#game{flex-direction:column;align-items:stretch}#side{width:100%;max-height:none}#boardWrap{max-width:100%}.cols{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div id="conn">connecting…</div>
+<div id="toasts"></div>
+
+<div id="home" class="center hide">
+  <h1>🏙️ Estate Tycoon</h1>
+  <div class="sub">Buy, trade and build your way to a fortune. 2–8 players, online.</div>
+  <div class="box">
+    <div class="row"><input id="nameIn" placeholder="Your name" maxlength="16"></div>
+    <div class="row" style="margin-top:10px"><button id="createBtn">Create game</button></div>
+  </div>
+  <div class="box">
+    <div class="row"><input id="codeIn" placeholder="ROOM CODE" maxlength="4" style="text-transform:uppercase;letter-spacing:4px"><button id="joinBtn" class="sec">Join</button></div>
+  </div>
+</div>
+
+<div id="lobby" class="center hide">
+  <div class="box">
+    <div style="text-align:center;color:var(--mut)">Room code — share it with friends</div>
+    <div class="code" id="lobbyCode"></div>
+    <div style="text-align:center"><button class="sec sm" id="copyBtn">Copy invite link</button></div>
+  </div>
+  <div class="box">
+    <div class="sec-h">Players (<span id="seatCount"></span>/8)</div>
+    <div id="seats"></div>
+    <div class="sec-h" style="margin-top:12px">Your colour</div>
+    <div class="row" id="colors"></div>
+  </div>
+  <div class="row"><button id="startBtn" class="good">Start game</button><button id="leaveBtn" class="sec">Leave</button></div>
+  <div id="waitMsg" class="sub" style="margin-top:10px"></div>
+</div>
+
+<div id="game" class="hide">
+  <div id="boardWrap"><div id="board"></div></div>
+  <aside id="side">
+    <div class="box" style="margin:0"><div class="sec-h">Players <span class="tag" id="myCash"></span></div><div id="players"></div></div>
+    <div class="box" style="margin:0"><div class="sec-h">Trade offers</div><div id="trades"></div></div>
+    <div class="box" style="margin:0"><div class="sec-h">My properties <span class="tag">tap tiles for rent info</span></div><div id="assets"></div></div>
+    <div class="box" style="margin:0">
+      <div class="tabs"><button class="sec" id="tabLog">Log</button><button class="sec" id="tabChat">Chat</button><button class="sec bad sm" id="leaveGame" style="margin-left:auto">Leave game</button></div>
+      <div id="log"></div>
+      <div id="chatWrap" class="hide"><div id="chatlog"></div><div class="row" style="margin-top:6px"><input id="chatIn" placeholder="Say something…" maxlength="200"><button id="chatBtn" class="sec">Send</button></div></div>
+    </div>
+  </aside>
+</div>
+<div id="modal" class="hide"></div>
+
+<script>
+(function(){
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const FACES=['⚀','⚁','⚂','⚃','⚄','⚅'];
+const ICONS={go:'▶',jail:'⛓️',parking:'🅿️',gotojail:'🚔',chance:'❔',chest:'🎁',tax:'💰',rail:'🚉',util:'💡'};
+let ws,me=-1,room=null,G=null,BOARD=null,GM=null,chats=[],lastRoll=0,lastCard=0,session=null;
+try{session=JSON.parse(localStorage.getItem('et_session')||'null')}catch(e){}
+
+function show(id){['home','lobby','game'].forEach(x=>$('#'+x).classList.toggle('hide',x!==id))}
+function toast(msg,cls,ms){const d=document.createElement('div');d.className='toast '+(cls||'');d.textContent=msg;$('#toasts').appendChild(d);setTimeout(()=>d.remove(),ms||3200)}
+function send(o){if(ws&&ws.readyState===1)ws.send(JSON.stringify(o))}
+function A(o){send(Object.assign({type:'action'},o))}
+window.A=A;
+
+function connect(){
+  const proto=location.protocol==='https:'?'wss':'ws';
+  ws=new WebSocket(proto+'://'+location.host);
+  ws.onopen=()=>{$('#conn').textContent='online';$('#conn').classList.add('ok');
+    if(session)send({type:'rejoin',code:session.code,token:session.token});else show('home')};
+  ws.onclose=()=>{$('#conn').textContent='reconnecting…';$('#conn').classList.remove('ok');setTimeout(connect,1500)};
+  ws.onmessage=e=>handle(JSON.parse(e.data));
+}
+function handle(m){
+  switch(m.type){
+    case 'joined':
+      session={code:m.code,token:m.token};localStorage.setItem('et_session',JSON.stringify(session));
+      me=m.you;BOARD=m.board;GM=m.groupMeta;break;
+    case 'room':room=m;
+      if(!room.started){G=null;show('lobby');renderLobby()}else{show('game');if(G)renderGame()}break;
+    case 'state':G=m.g;if(room&&room.started){show('game');renderGame()}break;
+    case 'chat':chats.push(m);renderChat();break;
+    case 'chatlog':chats=m.msgs||[];renderChat();break;
+    case 'error':
+      toast(m.msg,'err');
+      if(m.fatal){session=null;localStorage.removeItem('et_session');room=null;G=null;me=-1;show('home')}
+      break;
+  }
+}
+
+/* ---------- home / lobby ---------- */
+$('#nameIn').value=localStorage.getItem('et_name')||'';
+const urlCode=(new URLSearchParams(location.search).get('room')||'').toUpperCase();
+if(urlCode)$('#codeIn').value=urlCode;
+$('#createBtn').onclick=()=>{const n=$('#nameIn').value.trim();localStorage.setItem('et_name',n);send({type:'create',name:n})};
+$('#joinBtn').onclick=()=>{const n=$('#nameIn').value.trim();localStorage.setItem('et_name',n);send({type:'join',name:n,code:$('#codeIn').value.trim()})};
+$('#codeIn').addEventListener('keydown',e=>{if(e.key==='Enter')$('#joinBtn').click()});
+$('#copyBtn').onclick=()=>{const u=location.origin+location.pathname+'?room='+room.code;(navigator.clipboard?navigator.clipboard.writeText(u):Promise.reject()).then(()=>toast('Invite link copied'),()=>prompt('Copy this link:',u))};
+$('#startBtn').onclick=()=>send({type:'start'});
+$('#leaveBtn').onclick=()=>send({type:'leave'});
+$('#leaveGame').onclick=()=>{if((G&&G.phase==='over')||confirm('Leave the game? You will go bankrupt and lose all your assets.'))send({type:'leave'})};
+function renderLobby(){
+  $('#lobbyCode').textContent=room.code;
+  $('#seatCount').textContent=room.seats.length;
+  const isHost=room.host===me;
+  $('#seats').innerHTML=room.seats.map((s,i)=>`<div class="seat"><span class="dot" style="background:${s.color}"></span><b>${esc(s.name)}</b>${i===me?' <span class="tag">you</span>':''}${i===room.host?' <span class="tag">host</span>':''}${s.connected?'':' <span class="tag">offline</span>'}${isHost&&i!==me?`<button class="sm bad" style="margin-left:auto" data-kick="${i}">Kick</button>`:''}</div>`).join('');
+  document.querySelectorAll('[data-kick]').forEach(b=>b.onclick=()=>send({type:'kick',seat:+b.dataset.kick}));
+  $('#colors').innerHTML=room.colors.map(c=>{const taken=room.seats.some((s,i)=>s.color===c&&i!==me);return `<button class="sw ${room.seats[me]&&room.seats[me].color===c?'mine':''}" style="background:${c}" ${taken?'disabled':''} data-c="${c}"></button>`}).join('');
+  document.querySelectorAll('[data-c]').forEach(b=>b.onclick=()=>send({type:'setColor',color:b.dataset.c}));
+  $('#startBtn').classList.toggle('hide',!isHost);
+  $('#startBtn').disabled=room.seats.length<2;
+  $('#waitMsg').textContent=isHost?(room.seats.length<2?'Waiting for at least one more player…':'Everyone ready? Start whenever you like.'):'Waiting for the host to start the game…';
+}
+
+/* ---------- board ---------- */
+function cell(i){if(i<=10)return[11,11-i];if(i<=20)return[11-(i-10),1];if(i<=30)return[1,1+(i-20)];return[1+(i-30),11]}
+function sideCls(i){if(i%10===0)return'cn';if(i<10)return'sb';if(i<20)return'sl';if(i<30)return'st';return'sr'}
+const col=pi=>G.players[pi].color;
+function renderBoard(){
+  const byTile={};
+  G.players.forEach((p,i)=>{if(!p.bankrupt)(byTile[p.pos]=byTile[p.pos]||[]).push(i)});
+  let h='';
+  BOARD.forEach((t,i)=>{
+    const [r,c]=cell(i),o=G.props[i];
+    let band='',inner='';
+    if(t.type==='prop'){
+      let hs='';if(o){hs=o.houses===5?'<i class="ht"></i>':'<i class="hs"></i>'.repeat(o.houses)}
+      band=`<div class="band" style="background:${t.color}">${hs}</div>`;
+      inner=`<div class="nm">${esc(t.name)}</div><div class="pr">$${t.price}</div>`;
+    }else if(t.price){
+      inner=`<div class="ic">${ICONS[t.type]}</div><div class="nm">${esc(t.name)}</div><div class="pr">$${t.price}</div>`;
+    }else{
+      inner=`<div class="ic">${ICONS[t.type]||''}</div><div class="nm">${esc(t.name)}${t.amount?`</div><div class="pr">Pay $${t.amount}`:''}</div>`;
+    }
+    const own=o?`<div class="own" style="background:${col(o.owner)}"></div>`:'';
+    const tk=(byTile[i]||[]).map(pi=>`<span class="tok ${pi===G.turn?'cur':''}" style="background:${col(pi)}">${esc(G.players[pi].name[0]||'?')}</span>`).join('');
+    h+=`<div class="tile ${sideCls(i)} ${o&&o.mortgaged?'mort':''}" style="grid-row:${r};grid-column:${c}" data-i="${i}">${band}<div class="body">${inner}</div>${own}<div class="tk">${tk}</div></div>`;
+  });
+  h+='<div id="center"></div>';
+  $('#board').innerHTML=h;
+  document.querySelectorAll('.tile').forEach(el=>el.onclick=()=>tileInfo(+el.dataset.i));
+}
+
+/* ---------- centre panel ---------- */
+const nm=pi=>esc(G.players[pi].name);
+function centerHTML(){
+  const cur=G.players[G.turn],mine=G.turn===me,ph=G.phase;
+  let h='<div class="ttl">ESTATE TYCOON</div>';
+  if(G.dice)h+=`<div class="dice ${G.rollSeq!==lastRoll?'shake':''}">${FACES[G.dice[0]-1]}${FACES[G.dice[1]-1]}</div>`;
+  lastRoll=G.rollSeq;
+  const meP=G.players[me];
+  if(meP&&meP.bankrupt&&ph!=='over')h+='<div class="stat">You are bankrupt. Spectating…</div>';
+  switch(ph){
+    case 'roll':
+      if(mine){
+        h+=`<div class="stat">${cur.inJail?`⛓️ You're in Jail (attempt ${cur.jailTurns+1}/3)`:'🎲 Your turn!'}</div><div class="cbtns">`;
+        if(cur.inJail){
+          h+=`<button onclick="A({a:'payJail'})" ${cur.cash<50?'disabled':''}>Pay $50</button>`;
+          if(cur.jailCards.length)h+=`<button onclick="A({a:'useCard'})">Use Jail card</button>`;
+        }
+        h+=`<button class="good" onclick="A({a:'roll'})">${cur.inJail?'Roll for doubles':'Roll dice'}</button></div>`;
+      }else h+=`<div class="stat">Waiting for ${nm(G.turn)} to roll…</div>`;
+      break;
+    case 'buy':{
+      const t=BOARD[G.players[G.turn].pos];
+      h+=`<div class="stat">${nm(G.turn)} landed on ${esc(t.name)}</div>`;
+      if(mine)h+=`<div class="small">Price $${t.price}</div><div class="cbtns"><button class="good" onclick="A({a:'buy'})" ${cur.cash<t.price?'disabled':''}>Buy for $${t.price}</button><button class="sec" onclick="A({a:'decline'})">Auction it</button></div>`;
+      break;}
+    case 'auction':{
+      const a=G.auction,t=BOARD[a.tile],my=a.current===me;
+      h+=`<div class="stat">🔨 Auction: ${esc(t.name)}</div><div class="small">List price $${t.price}</div>`;
+      h+=`<div class="stat">${a.bidder===null?'No bids yet':`Top bid $${a.bid} by ${nm(a.bidder)}`}</div>`;
+      if(my){
+        h+='<div class="cbtns">';
+        [1,10,50,100].forEach(d=>{const v=a.bid+d;h+=`<button onclick="A({a:'bid',amount:${v}})" ${v>meP.cash?'disabled':''}>Bid $${v}</button>`});
+        h+=`<button class="sec" onclick="A({a:'pass'})">Pass</button></div>`;
+      }else h+=`<div class="small">Waiting for ${nm(a.current)}…</div>`;
+      break;}
+    case 'debt':{
+      const d=G.debt,dm=d.player===me,pl=G.players[d.player];
+      h+=`<div class="stat" style="color:#a00">${nm(d.player)} owes $${d.total}</div><div class="small">Cash: $${pl.cash}. Sell buildings or mortgage properties to raise money.</div>`;
+      if(dm)h+=`<div class="cbtns"><button class="good" onclick="A({a:'payDebt'})" ${pl.cash<d.total?'disabled':''}>Pay $${d.total}</button><button class="bad" onclick="if(confirm('Declare bankruptcy?'))A({a:'bankrupt'})">Declare bankruptcy</button></div>`;
+      break;}
+    case 'end':
+      h+=mine?`<div class="stat">Build, trade, or…</div><div class="cbtns"><button class="good" onclick="A({a:'endTurn'})">End turn</button></div>`:`<div class="stat">${nm(G.turn)} is finishing their turn…</div>`;
+      break;
+    case 'over':
+      h+=`<div class="stat" style="font-size:max(16px,3.5cqw)">🏆 ${G.winner!=null?nm(G.winner):'Nobody'} wins!</div>`;
+      break;
+  }
+  h+=`<div class="evt">${G.log.slice(-3).map(esc).join('<br>')}</div>`;
+  return h;
+}
+
+/* ---------- sidebar ---------- */
+function renderPlayers(){
+  $('#players').innerHTML=G.players.map((p,i)=>{
+    const tags=[];if(p.inJail)tags.push('⛓️');if(p.jailCards.length)tags.push('🎫×'+p.jailCards.length);if(!p.connected&&!p.bankrupt)tags.push('offline');
+    const kick=room&&room.host===me&&i!==me&&!p.bankrupt?`<button class="sm bad" data-kick="${i}" title="Remove player">✕</button>`:'';
+    const trade=i!==me&&!p.bankrupt&&me>=0&&!G.players[me].bankrupt?`<button class="sm sec" data-trade="${i}">Trade</button>`:'';
+    return `<div class="pl ${i===G.turn&&G.phase!=='over'?'turn':''} ${p.bankrupt?'out':''}"><span class="dot" style="background:${p.color}"></span><span>${esc(p.name)}${i===me?' (you)':''}</span>${tags.map(t=>`<span class="tag">${t}</span>`).join('')}<span class="cash">$${p.cash}</span>${trade}${kick}</div>`;
+  }).join('');
+  document.querySelectorAll('[data-trade]').forEach(b=>b.onclick=()=>tradeModal(+b.dataset.trade));
+  document.querySelectorAll('#players [data-kick]').forEach(b=>b.onclick=()=>{if(confirm('Remove '+G.players[+b.dataset.kick].name+' from the game?'))send({type:'kick',seat:+b.dataset.kick})});
+  $('#myCash').textContent=me>=0&&G.players[me]?'$'+G.players[me].cash+' · worth $'+G.players[me].worth:'';
+}
+function renderAssets(){
+  const mine=[];G.props.forEach((o,i)=>{if(o&&o.owner===me)mine.push(i)});
+  if(!mine.length){$('#assets').innerHTML='<div class="small" style="color:var(--mut)">You don\'t own anything yet.</div>';return}
+  $('#assets').innerHTML=mine.map(i=>{
+    const t=BOARD[i],o=G.props[i];
+    const colr=t.type==='prop'?t.color:'#888';
+    const hs=t.type==='prop'?(o.houses===5?'🏨':'🏠'.repeat(o.houses)):'';
+    let b='';
+    if(t.type==='prop'){b+=`<button class="sm" title="Build ($${t.hcost})" onclick="A({a:'build',tile:${i}})">+🏠</button><button class="sm sec" title="Sell building" onclick="A({a:'sell',tile:${i}})">−🏠</button>`}
+    b+=o.mortgaged?`<button class="sm good" title="Unmortgage" onclick="A({a:'unmortgage',tile:${i}})">Unmort.</button>`:`<button class="sm sec" title="Mortgage for $${Math.floor(t.price/2)}" onclick="A({a:'mortgage',tile:${i}})">Mort.</button>`;
+    return `<div class="prow ${o.mortgaged?'m':''}"><span class="sw2" style="background:${colr}"></span><span class="nmx" onclick="window.tileInfo(${i})" style="cursor:pointer">${esc(t.name)} ${hs}</span>${b}</div>`;
+  }).join('');
+}
+function renderTrades(){
+  const ts=G.trades.filter(t=>t.to===me||t.from===me);
+  if(!ts.length){$('#trades').innerHTML='<div class="small" style="color:var(--mut)">No pending offers. Click “Trade” next to a player.</div>';return}
+  const side=s=>[s.cash?'$'+s.cash:'',...s.props.map(i=>esc(BOARD[i].name)),s.cards?'🎫×'+s.cards:''].filter(Boolean).join(', ')||'nothing';
+  $('#trades').innerHTML=ts.map(t=>{
+    const inc=t.to===me;
+    return `<div class="tr"><b>${nm(t.from)}</b> → <b>${nm(t.to)}</b><br>${inc?'They give':'You give'}: ${side(t.give)}<br>${inc?'You give':'You get'}: ${side(t.get)}<div class="row" style="margin-top:6px">${inc?`<button class="sm good" onclick="A({a:'tradeAccept',id:${t.id}})">Accept</button><button class="sm sec" onclick="A({a:'tradeCancel',id:${t.id}})">Decline</button>`:`<button class="sm sec" onclick="A({a:'tradeCancel',id:${t.id}})">Withdraw</button>`}</div></div>`;
+  }).join('');
+}
+function renderLog(){const el=$('#log');const atEnd=el.scrollTop+el.clientHeight>=el.scrollHeight-30;el.innerHTML=G.log.map(l=>`<div>${esc(l)}</div>`).join('');if(atEnd)el.scrollTop=el.scrollHeight}
+function renderChat(){const el=$('#chatlog');el.innerHTML=chats.map(c=>`<div><b style="color:${c.color}">${esc(c.name)}:</b>${esc(c.text)}</div>`).join('');el.scrollTop=el.scrollHeight}
+$('#tabLog').onclick=()=>{$('#log').classList.remove('hide');$('#chatWrap').classList.add('hide')};
+$('#tabChat').onclick=()=>{$('#log').classList.add('hide');$('#chatWrap').classList.remove('hide');$('#chatlog').scrollTop=1e9};
+const sendChat=()=>{const v=$('#chatIn').value.trim();if(v){send({type:'chat',text:v});$('#chatIn').value=''}};
+$('#chatBtn').onclick=sendChat;$('#chatIn').addEventListener('keydown',e=>{if(e.key==='Enter')sendChat()});
+
+/* ---------- modals ---------- */
+function openModal(html){const m=$('#modal');m.innerHTML=`<div class="card">${html}</div>`;m.classList.remove('hide')}
+function closeModal(){$('#modal').classList.add('hide');$('#modal').innerHTML=''}
+window.closeModal=closeModal;
+$('#modal').addEventListener('mousedown',e=>{if(e.target.id==='modal')closeModal()});
+function tileInfo(i){
+  const t=BOARD[i],o=G&&G.props[i];
+  let h=`<h3 style="margin-top:0">${esc(t.name)}</h3>`;
+  if(t.type==='prop'){
+    h+=`<div style="height:10px;background:${t.color};border-radius:4px;margin-bottom:8px"></div><table class="rt"><tr><td>Price</td><td>$${t.price}</td></tr><tr><td>Rent</td><td>$${t.rent[0]}</td></tr><tr><td>Full set (no buildings)</td><td>$${t.rent[0]*2}</td></tr>`;
+    ['1 house','2 houses','3 houses','4 houses','Hotel'].forEach((l,k)=>h+=`<tr><td>${l}</td><td>$${t.rent[k+1]}</td></tr>`);
+    h+=`<tr><td>Building cost (each)</td><td>$${t.hcost}</td></tr><tr><td>Mortgage value</td><td>$${t.price/2}</td></tr></table>`;
+  }else if(t.type==='rail')h+=`<p>Price $${t.price}. Rent: $25 with one station, $50 with two, $100 with three, $200 with all four. Mortgage value $${t.price/2}.</p>`;
+  else if(t.type==='util')h+=`<p>Price $${t.price}. Rent: 4× the dice roll with one utility, 10× with both. Mortgage value $${t.price/2}.</p>`;
+  else if(t.type==='tax')h+=`<p>Pay $${t.amount} to the bank.</p>`;
+  else if(t.type==='go')h+='<p>Collect $200 each time you pass or land here.</p>';
+  else if(t.type==='jail')h+='<p>Just visiting — unless you were sent here. Get out by paying $50, using a card, or rolling doubles (forced $50 payment on the third try).</p>';
+  else if(t.type==='gotojail')h+='<p>Go directly to Jail.</p>';
+  else if(t.type==='parking')h+='<p>A free rest. Nothing happens.</p>';
+  else h+='<p>Draw a card.</p>';
+  if(o)h+=`<p><b>Owner:</b> ${nm(o.owner)}${o.mortgaged?' (mortgaged)':''}${o.houses?` · ${o.houses===5?'Hotel':o.houses+' house'+(o.houses>1?'s':'')}`:''}</p>`;
+  h+='<button onclick="closeModal()">Close</button>';
+  openModal(h);
+}
+window.tileInfo=tileInfo;
+
+let draft=null;
+function tradable(pi){const r=[];G.props.forEach((o,i)=>{if(!o||o.owner!==pi)return;const t=BOARD[i];if(t.type==='prop'&&BOARD.some((u,j)=>u.group===t.group&&G.props[j]&&G.props[j].houses>0))return;r.push(i)});return r}
+function tradeModal(to){
+  draft={to,give:{cash:0,props:[],cards:0},get:{cash:0,props:[],cards:0}};
+  const col2=(pi,key,title)=>{
+    const p=G.players[pi],ps=tradable(pi);
+    return `<div><h4 style="margin:0 0 6px">${title}</h4>
+      <div class="small">Cash (max $${p.cash})</div><input type="number" min="0" max="${p.cash}" value="0" style="width:100%;margin-bottom:6px" data-cash="${key}">
+      ${ps.map(i=>`<label><input type="checkbox" data-prop="${key}:${i}"><span class="dot" style="width:10px;height:14px;border-radius:2px;border:0;background:${BOARD[i].color||'#888'}"></span>${esc(BOARD[i].name)}${G.props[i].mortgaged?' (M)':''}</label>`).join('')||'<div class="small" style="color:var(--mut)">No tradable properties</div>'}
+      ${p.jailCards.length?`<div class="small" style="margin-top:6px">Jail cards (have ${p.jailCards.length})</div><input type="number" min="0" max="${p.jailCards.length}" value="0" data-cards="${key}" style="width:80px">`:''}
+    </div>`};
+  openModal(`<h3 style="margin-top:0">Trade with ${nm(to)}</h3><div class="cols">${col2(me,'give','You give')}${col2(to,'get','You get')}</div>
+    <p class="small" style="color:var(--mut)">Mortgaged properties cost the receiver a 5% fee. Properties in sets with buildings can't be traded.</p>
+    <div class="row"><button class="good" id="sendTrade">Send offer</button><button class="sec" onclick="closeModal()">Cancel</button></div>`);
+  document.querySelectorAll('[data-cash]').forEach(el=>el.oninput=()=>{draft[el.dataset.cash].cash=Math.max(0,parseInt(el.value)||0)});
+  document.querySelectorAll('[data-cards]').forEach(el=>el.oninput=()=>{draft[el.dataset.cards].cards=Math.max(0,parseInt(el.value)||0)});
+  document.querySelectorAll('[data-prop]').forEach(el=>el.onchange=()=>{const[k,i]=el.dataset.prop.split(':');const a=draft[k].props;const n=+i;if(el.checked){if(!a.includes(n))a.push(n)}else draft[k].props=a.filter(x=>x!==n)});
+  $('#sendTrade').onclick=()=>{A({a:'trade',to:draft.to,give:draft.give,get:draft.get});closeModal()};
+}
+
+/* ---------- main render ---------- */
+function renderGame(){
+  if(!G||!BOARD)return;
+  renderBoard();
+  $('#center').innerHTML=centerHTML();
+  renderPlayers();renderAssets();renderTrades();renderLog();
+  if(G.lastCard&&G.lastCard.seq!==lastCard){
+    if(lastCard!==0||G.lastCard.seq>0)toast((G.lastCard.deck==='chance'?'❔ Chance — ':'🎁 Community Fund — ')+G.lastCard.player+': '+G.lastCard.text,'card',5000);
+    lastCard=G.lastCard.seq;
+  }
+  if(G.phase==='over'&&$('#modal').dataset.over!=='1'){
+    $('#modal').dataset.over='1';
+    openModal(`<h2 style="margin-top:0">🏆 ${G.winner!=null?nm(G.winner):'Nobody'} wins!</h2><p>Thanks for playing.</p><button onclick="closeModal()">Close</button> <button class="sec" onclick="document.getElementById('leaveGame').click()">Back to menu</button>`);
+  }
+}
+
+/* ---------- boot ---------- */
+connect();
+})();
+</script>
+</body>
+</html>
