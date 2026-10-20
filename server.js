@@ -538,4 +538,4 @@ setInterval(() => {
 if (require.main === module) {
   server.listen(PORT, () => console.log(`Estate Tycoon running on http://localhost:${PORT}`));
 }
-module.exports = { server, wss, rooms };
+module.exports = server;
