@@ -1,9 +1,3 @@
 # Estate Tycoon
 
-## Deploy to Vercel
-
-This project uses a Node.js server for its WebSocket multiplayer game. Vercel deploys the root `server.js` entry point; `vercel.json` sets the function duration.
-
-Create an Upstash Redis database and add its TLS Redis connection URL as the `UPSTASH_REDIS_URL` environment variable in the Vercel project. Use the Redis connection URL (the `rediss://` URL), not the REST URL or REST token. Redis stores room state and coordinates players connected to different function instances.
-
-The same environment variable can be set locally to test the Redis-backed server. Without it, `npm start` uses in-memory room state for local development only.
+Added Upstash Redis and deployed this on Vercel. Now, I want to improve it. The problems that I encountered. 1. Lag, it takes a considerable amount of time to do anything. 2. Sometimes, it fails to live update and i have to reload the page. 3. The animations are a little basic, like the dice rolls. The pieces moving. 4. In the middle of the session, the game somehow reverted into a old gamestate from 20 minutes ago. No idea how that happened. 5. The game is purely 2d, can we make it 2.5d with some cool animations designs, and everything. 6. The board might be too small for 8 players. Can you expand it while still ensuring that the game design is consistent and viable for 8 players. We can have the smaller current board, and the new larger board. 7. The chat, add chat moderation feature for the host, and the ability to add a banned list of words. 8. The game updating slowly and inconsistently has been the main issue. Let's tackle it in this version.
