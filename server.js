@@ -3,6 +3,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { AsyncLocalStorage } = require('async_hooks');
 const { WebSocketServer } = require('ws');
 const Redis = require('ioredis');
 const game = require('./game');
@@ -28,6 +29,9 @@ const subscriberReady = subscriber ? subscriber.subscribe(EVENT_CHANNEL) : Promi
 const rooms = new Map();
 const sockets = new Map();
 const localLocks = new Map();
+const roomLockContext = new AsyncLocalStorage();
+const LOCK_TTL_MS = 15000;
+const LOCK_RENEW_MS = 5000;
 
 const server = http.createServer((req, res) => {
   const u = req.url.split('?')[0];
@@ -107,12 +111,34 @@ async function withRoomLock(code, callback) {
   const token = newToken();
   let acquired = false;
   for (let attempt = 0; attempt < 60; attempt++) {
-    if (await redis.set(key, token, 'PX', 15000, 'NX')) { acquired = true; break; }
+    if (await redis.set(key, token, 'PX', LOCK_TTL_MS, 'NX')) { acquired = true; break; }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   if (!acquired) throw new Error(`Timed out waiting for room ${code}.`);
-  try { return await callback(); }
-  finally {
+  let lockLost = false;
+  let renewal = Promise.resolve();
+  const timer = setInterval(() => {
+    renewal = renewal.then(async () => {
+      if (lockLost) return;
+      const renewed = await redis.eval(
+        "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('pexpire', KEYS[1], ARGV[2]) else return 0 end",
+        1, key, token, LOCK_TTL_MS,
+      );
+      if (!renewed) lockLost = true;
+    }).catch((error) => {
+      lockLost = true;
+      console.error(`Room lock renewal failed for ${code}`, error);
+    });
+  }, LOCK_RENEW_MS);
+  try {
+    const result = await roomLockContext.run({ code, token, isLost: () => lockLost }, callback);
+    clearInterval(timer);
+    await renewal;
+    if (lockLost) throw new Error(`Lost room lock for ${code}.`);
+    return result;
+  } finally {
+    clearInterval(timer);
+    await renewal;
     await redis.eval(
       "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
       1, key, token,
@@ -136,13 +162,28 @@ async function loadRoom(code) {
 }
 
 async function saveRoom(room) {
-  rooms.set(room.code, room);
-  if (!redis) return;
+  room.revision = (room.revision || 0) + 1;
+  if (!redis) {
+    rooms.set(room.code, room);
+    return;
+  }
+  const lock = roomLockContext.getStore();
+  if (!lock || lock.code !== room.code || lock.isLost()) {
+    throw new Error(`Cannot save room ${room.code} without its active lock.`);
+  }
   const stored = {
     ...room,
     seats: room.seats.map(({ ws, ...seat }) => ({ ...seat, ws: null })),
   };
-  await redis.set(roomKey(room.code), JSON.stringify(stored), 'EX', ROOM_TTL_SECONDS);
+  const saved = await redis.eval(
+    "if redis.call('get', KEYS[2]) ~= ARGV[1] then return 0 end; redis.call('set', KEYS[1], ARGV[2], 'EX', ARGV[3]); return 1",
+    2, roomKey(room.code), lockKey(room.code), lock.token, JSON.stringify(stored), ROOM_TTL_SECONDS,
+  );
+  if (!saved) {
+    lock.isLost = () => true;
+    throw new Error(`Room lock expired before saving room ${room.code}.`);
+  }
+  rooms.set(room.code, room);
 }
 
 async function deleteRoom(code) {
@@ -150,25 +191,40 @@ async function deleteRoom(code) {
   if (redis) await redis.del(roomKey(code));
 }
 
-async function isConnected(room, seat) {
-  if (seat.ws && seat.ws.readyState === 1) return true;
-  return redis ? !!(await redis.exists(presenceKey(room.code, seat.token))) : false;
+async function getConnectedSeats(room) {
+  const connected = room.seats.map((seat) => !!(seat.ws && seat.ws.readyState === 1));
+  if (!redis) return connected;
+  const remote = [];
+  room.seats.forEach((seat, i) => {
+    if (!connected[i] && seat.token) remote.push({ i, token: seat.token });
+  });
+  if (!remote.length) return connected;
+  const pipeline = redis.pipeline();
+  remote.forEach(({ token }) => pipeline.exists(presenceKey(room.code, token)));
+  const results = await pipeline.exec();
+  results.forEach((result, i) => {
+    const [error, value] = result;
+    if (error) throw error;
+    connected[remote[i].i] = !!value;
+  });
+  return connected;
 }
 
 async function syncConnectivity(room) {
   let changed = false;
-  for (const seat of room.seats) {
-    const connected = await isConnected(room, seat);
-    if (connected && seat.discAt) { seat.discAt = null; changed = true; }
-    else if (!connected && !seat.discAt) { seat.discAt = Date.now(); changed = true; }
-  }
-  return changed;
+  const connected = await getConnectedSeats(room);
+  room.seats.forEach((seat, i) => {
+    if (connected[i] && seat.discAt) { seat.discAt = null; changed = true; }
+    else if (!connected[i] && !seat.discAt) { seat.discAt = Date.now(); changed = true; }
+  });
+  return { changed, connected };
 }
 
 async function roomInfo(room) {
-  const connected = await Promise.all(room.seats.map((seat) => isConnected(room, seat)));
+  const connected = await getConnectedSeats(room);
   return {
     type: 'room',
+    revision: room.revision || 0,
     code: room.code,
     host: room.seats.findIndex((s) => s.token === room.hostToken),
     started: room.started,
@@ -191,9 +247,9 @@ async function pushRoom(room) { await broadcast(room, await roomInfo(room)); }
 
 async function pushState(room) {
   if (!room.g) return;
-  const connected = await Promise.all(room.seats.map((seat) => isConnected(room, seat)));
+  const connected = await getConnectedSeats(room);
   room.g.players.forEach((player, i) => { player.connected = connected[i]; });
-  await broadcast(room, { type: 'state', g: game.snapshot(room.g) });
+  await broadcast(room, { type: 'state', revision: room.revision || 0, g: game.snapshot(room.g) });
 }
 
 function joinedMsg(room, seatIdx) {
@@ -251,9 +307,10 @@ async function removeSeatInLobby(room, idx) {
   await pushRoom(room);
 }
 
-async function autoplay(room) {
+async function autoplay(room, connectedSeats) {
   const g = room.g;
   if (!g) return false;
+  const connected = connectedSeats || await getConnectedSeats(room);
   let changed = false;
   for (let n = 0; n < 40 && g.phase !== 'over'; n++) {
     let pi, action, idle = false;
@@ -263,7 +320,7 @@ async function autoplay(room) {
     else if (g.phase === 'roll') { pi = g.turn; action = { a: 'roll' }; idle = true; }
     else { pi = g.turn; action = { a: 'endTurn' }; idle = true; }
     const seat = room.seats[pi];
-    if (!seat || await isConnected(room, seat)) break;
+    if (!seat || connected[pi]) break;
     if (idle && seat.discAt && Date.now() - seat.discAt < IDLE_AUTOPLAY_MS) break;
     if (game.act(g, pi, action)) break;
     changed = true;
@@ -327,7 +384,7 @@ async function handle(ws, message) {
     const me = room ? seatIndex(room, context.token) : -1;
     if (!room || me < 0) return;
     room.seats[me].ws = ws;
-    await syncConnectivity(room);
+    const connectivity = await syncConnectivity(room);
     const isHost = room.seats[me].token === room.hostToken;
     let roomChanged = false;
     let stateChanged = false;
@@ -352,7 +409,7 @@ async function handle(ws, message) {
         if (!room.started || !room.g) return;
         const error = game.act(room.g, me, message);
         if (error) return send(ws, { type: 'error', msg: error });
-        if (await autoplay(room)) stateChanged = true;
+        if (await autoplay(room, connectivity.connected)) stateChanged = true;
         stateChanged = true;
         break;
       }
@@ -380,7 +437,7 @@ async function handle(ws, message) {
         await notifyAndClose(room, target, 'You were removed by the host.');
         target.token = null;
         target.ws = null;
-        await autoplay(room);
+        await autoplay(room, connectivity.connected);
         roomChanged = stateChanged = true;
         break;
       }
@@ -401,7 +458,7 @@ async function handle(ws, message) {
         removeSocket(ws);
         if (redis) await redis.del(presenceKey(room.code, context.token));
         send(ws, { type: 'error', msg: 'You left the game.', fatal: true });
-        await autoplay(room);
+        await autoplay(room, connectivity.connected);
         roomChanged = stateChanged = true;
         break;
       }
@@ -494,17 +551,18 @@ setInterval(() => {
     withRoomLock(code, async () => {
       const room = await loadRoom(code);
       if (!room) return;
-      let changed = await syncConnectivity(room);
+      const connectivity = await syncConnectivity(room);
+      let changed = connectivity.changed;
       if (!room.started) {
         for (let i = room.seats.length - 1; i >= 0; i--) {
           const seat = room.seats[i];
-          if (!await isConnected(room, seat) && seat.discAt && Date.now() - seat.discAt > 30000) {
+          if (!connectivity.connected[i] && seat.discAt && Date.now() - seat.discAt > 30000) {
             await removeSeatInLobby(room, i);
             changed = true;
           }
         }
         if (!room.seats.length) return;
-      } else if (await autoplay(room)) {
+      } else if (await autoplay(room, connectivity.connected)) {
         changed = true;
       }
       if (changed) {

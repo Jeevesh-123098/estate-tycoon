@@ -138,7 +138,7 @@ const $=s=>document.querySelector(s);
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const FACES=['⚀','⚁','⚂','⚃','⚄','⚅'];
 const ICONS={go:'▶',jail:'⛓️',parking:'🅿️',gotojail:'🚔',chance:'❔',chest:'🎁',tax:'💰',rail:'🚉',util:'💡'};
-let ws,me=-1,room=null,G=null,BOARD=null,GM=null,chats=[],lastRoll=0,lastCard=0,session=null;
+let ws,me=-1,room=null,G=null,BOARD=null,GM=null,chats=[],lastRoll=0,lastCard=0,lastRevision=-1,reconnectDelay=1000,session=null;
 try{session=JSON.parse(localStorage.getItem('et_session')||'null')}catch(e){}
 
 function show(id){['home','lobby','game'].forEach(x=>$('#'+x).classList.toggle('hide',x!==id))}
@@ -150,19 +150,25 @@ window.A=A;
 function connect(){
   const proto=location.protocol==='https:'?'wss':'ws';
   ws=new WebSocket(proto+'://'+location.host);
-  ws.onopen=()=>{$('#conn').textContent='online';$('#conn').classList.add('ok');
+  ws.onopen=()=>{reconnectDelay=1000;$('#conn').textContent='online';$('#conn').classList.add('ok');
     if(session)send({type:'rejoin',code:session.code,token:session.token});else show('home')};
-  ws.onclose=()=>{$('#conn').textContent='reconnecting…';$('#conn').classList.remove('ok');setTimeout(connect,1500)};
+  ws.onclose=()=>{$('#conn').textContent='reconnecting…';$('#conn').classList.remove('ok');
+    setTimeout(connect,reconnectDelay+Math.random()*reconnectDelay);reconnectDelay=Math.min(reconnectDelay*2,30000)};
   ws.onmessage=e=>handle(JSON.parse(e.data));
 }
 function handle(m){
   switch(m.type){
     case 'joined':
       session={code:m.code,token:m.token};localStorage.setItem('et_session',JSON.stringify(session));
-      me=m.you;BOARD=m.board;GM=m.groupMeta;break;
-    case 'room':room=m;
+      me=m.you;BOARD=m.board;GM=m.groupMeta;lastRevision=-1;break;
+    case 'room':
+      if(m.revision<lastRevision)return;
+      lastRevision=Math.max(lastRevision,m.revision||0);room=m;
       if(!room.started){G=null;show('lobby');renderLobby()}else{show('game');if(G)renderGame()}break;
-    case 'state':G=m.g;if(room&&room.started){show('game');renderGame()}break;
+    case 'state':
+      if(m.revision<lastRevision)return;
+      lastRevision=Math.max(lastRevision,m.revision||0);G=m.g;
+      if(room&&room.started){show('game');renderGame()}break;
     case 'chat':chats.push(m);renderChat();break;
     case 'chatlog':chats=m.msgs||[];renderChat();break;
     case 'error':
